@@ -134,7 +134,5 @@ def main():
         if 'sock' in locals():
             sock.close()
 
-if __name__ == '__main__':
-    main()
-    a="helloword"
-
+i
+    
