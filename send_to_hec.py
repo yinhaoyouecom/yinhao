@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-把本地的 study.py 上传到 HEC1020 的 /userapp/tmp 目录。
+把本地的文件上传到 HEC1020 板卡的指定目录。
+
+*** 最常改的两个参数在下面的『配 置 区』里（不在别处）： ***
+        LOCAL_FILE = "study.py"           # 要传哪个文件
+        REMOTE_DIR = "/userapp/userdata"   # 传到板卡的哪个目录
+    改完直接运行 python send_to_hec.py 即可；临时也可以命令行覆盖
+    （--local / -r）。qq
 
 HEC1020 是 Linux 主机（以太网默认 192.168.1.253，WiFi 默认 192.168.2.253），
 出厂用户 root / 密码 hec999，支持 ftp、tftp、scp。
@@ -10,6 +16,7 @@ HEC1020 是 Linux 主机（以太网默认 192.168.1.253，WiFi 默认 192.168.2
     python send_to_hec.py                       # 默认 auto：依次尝试 sftp -> scp -> cat
     python send_to_hec.py -H 192.168.2.253      # 用 WiFi 时的 IP
     python send_to_hec.py -p hec999 -r /userapp/tmp/
+    python send_to_hec.py --local test.py -r /userapp/userdata
     python send_to_hec.py --method scp          # 板卡 sshd 没配 sftp subsystem 时
     python send_to_hec.py --method ftp          # 板卡开了 ftp 服务时
 
@@ -26,11 +33,30 @@ import posixpath
 import sys
 import time
 
+# =============================== 配 置 区 ===============================
+# 平时只改下面两行就够了，改完直接运行:  python send_to_hec.py
+LOCAL_FILE = "study.py"            # 要上传的本地文件：相对本脚本目录，或写绝对路径
+REMOTE_DIR = "/userapp/userdata"  # 上传到板卡的哪个目录（不存在会自动创建）
+
+# 板卡连接信息，一般不用动
 DEFAULT_HOST = "192.168.1.253"   # 以太网；WiFi 方式登录用 192.168.2.253
 DEFAULT_USER = "root"
 DEFAULT_PASS = "hec999"          # 出厂密码，建议登录后修改
-DEFAULT_REMOTE_DIR = "/userapp/tmp"
-DEFAULT_LOCAL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "study.py")
+# ======================================================================
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_local(path: str) -> str:
+    """把 LOCAL_FILE 解析成绝对路径。
+    绝对路径原样返回；相对路径先按『脚本所在目录』找，找不到再按当前工作目录找。
+    """
+    if os.path.isabs(path):
+        return path
+    cand = os.path.join(SCRIPT_DIR, path)
+    if os.path.isfile(cand):
+        return cand
+    return os.path.abspath(path)
 
 
 # --------------------------------------------------------------------------- #
@@ -361,13 +387,16 @@ def upload_ftp(local, remote_dir, remote_name, args):
 # --------------------------------------------------------------------------- #
 def main():
     parser = argparse.ArgumentParser(
-        description="把 study.py 上传到 HEC1020 的 /userapp/tmp 目录",
+        description=f"把本地文件上传到 HEC1020（当前配置: "
+                    f"{LOCAL_FILE} -> {REMOTE_DIR}）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
+默认值来自脚本顶部的『配置区』: LOCAL_FILE={LOCAL_FILE}  REMOTE_DIR={REMOTE_DIR}
+
 示例:
   python send_to_hec.py
   python send_to_hec.py -H 192.168.2.253 -u root -p hec999
-  python send_to_hec.py --local study.py --remote-dir /userapp/tmp
+  python send_to_hec.py --local test.py --remote-dir /userapp/userdata
   python send_to_hec.py --method ftp
 """,
     )
@@ -375,9 +404,10 @@ def main():
                         help=f"HEC1020 的 IP（默认 {DEFAULT_HOST}，WiFi 为 192.168.2.253）")
     parser.add_argument("-u", "--user", default=DEFAULT_USER, help="登录用户名")
     parser.add_argument("-p", "--password", default=DEFAULT_PASS, help="登录密码")
-    parser.add_argument("--local", default=DEFAULT_LOCAL_FILE, help="本地文件路径")
-    parser.add_argument("-r", "--remote-dir", default=DEFAULT_REMOTE_DIR,
-                        help=f"远程目录（默认 {DEFAULT_REMOTE_DIR}）")
+    parser.add_argument("--local", default=LOCAL_FILE,
+                        help=f"本地文件路径（默认取配置区 LOCAL_FILE={LOCAL_FILE}）")
+    parser.add_argument("-r", "--remote-dir", default=REMOTE_DIR,
+                        help=f"远程目录（默认取配置区 REMOTE_DIR={REMOTE_DIR}）")
     parser.add_argument("--remote-name", default=None, help="远程文件名（默认与本地同名）")
     parser.add_argument("--method", choices=("auto", "sftp", "scp", "cat", "ftp"),
                         default="auto",
@@ -389,11 +419,14 @@ def main():
 
     if args.port is None:
         args.port = 21 if args.method == "ftp" else 22
+    args.local = resolve_local(args.local)
     if args.remote_name is None:
         args.remote_name = os.path.basename(args.local)
 
     if not os.path.isfile(args.local):
         print(f"错误: 本地文件不存在: {args.local}", file=sys.stderr)
+        print("      请修改脚本顶部『配置区』的 LOCAL_FILE，或用 --local 临时指定",
+              file=sys.stderr)
         return 1
 
     uploaders = {"sftp": upload_sftp, "scp": upload_scp, "cat": upload_cat}
